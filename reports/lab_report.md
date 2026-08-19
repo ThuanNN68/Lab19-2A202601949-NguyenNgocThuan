@@ -1,122 +1,94 @@
-# Báo Cáo Thực Hành & Thuyết Minh Kỹ Thuật — Lab 19: GraphRAG vs Flat RAG
+# Báo cáo Lab 19 — Production-Grade GraphRAG vs Flat RAG
 
-**Học viên:** [Họ và Tên]  
-**Khóa học:** AICB-K34 · Track 3: GraphRAG  
-**Ngày thực hiện:** [Ngày/Tháng/Năm]  
+**Học viên:** Nguyễn Ngọc Thuận  
+**Track:** AICB-K34 · Track 3: GraphRAG  
+**Golden Set:** `data/golden_dataset.csv` — 50 câu, phạm vi 5.000 dòng đầu của nguồn dữ liệu.
 
----
+## 1. Kết quả thực thi và kiểm tra bắt buộc
 
-## 📌 PHẦN 1: THUYẾT MINH KỸ THUẬT & PHÂN TÍCH CA LỖI
+Graph Neo4j sau ingestion có **109 Entity nodes** và **134 edges**. Kiểm tra provenance trả về **0** cạnh thiếu `source_chunk_id` hoặc `published_date`. Hai file benchmark đã xuất là `outputs/graphrag_eval_results.csv` và `outputs/graphrag_vs_flatrag_summary.csv`.
 
-### 1. Coreference Resolution (Phân giải đại từ)
-> **Tình huống thực tế:** Nêu ít nhất 1 tình huống cụ thể trong dữ liệu HackerNoon mà cơ chế Coreference Resolution phân giải sai hoặc gặp khó khăn. Hậu quả của nó đối với Knowledge Graph là gì?
+Golden evaluation đã chạy đủ **50/50** câu: 23 `multi-hop`, 22 `cross-doc`, 5 `factoid`.
 
-*Trả lời:*
-- **Ví dụ từ dữ liệu:** [Trích dẫn chunk_id hoặc câu văn cụ thể]
-- **Hiện tượng:** [Ví dụ: 'The company' bị nhầm sang công ty được nhắc đến ở câu trước thay vì chủ ngữ chính]
-- **Hậu quả đối với Graph:** [Ví dụ: Tạo ra False Edge gán nhầm sự kiện M&A cho đối thủ cạnh tranh]
+## 2. Thuyết minh kỹ thuật và failure modes
 
----
+### 2.1 Coreference Resolution
 
-### 2. Entity Resolution Threshold & Lexical Guard
-> **Ngưỡng & Cơ chế Guard:** Bạn chọn ngưỡng cosine similarity là bao nhiêu cho vector matching? Trích dẫn 1 cặp thực thể có độ tương đồng vector cao ($> 0.85$) nhưng bị Lexical Guard chặn không cho gộp (Reject) và giải thích lý do.
+Pipeline dùng conservative coreference guard: LLM chỉ đề xuất `mention → antecedent`; code chỉ thay thế khi antecedent có nguyên văn trong cùng chunk và mention xuất hiện duy nhất. Số tiền, ngày, phần trăm và ticker được kiểm tra bất biến. Các trường hợp không đạt được giữ nguyên và ghi vào `unresolved_mentions` với các mã như `ANTECEDENT_NOT_IN_SAME_CHUNK`, `AMBIGUOUS_MENTION_OCCURRENCES` và `INVARIANT_VIOLATION`.
 
-*Trả lời:*
-- **Ngưỡng cosine similarity:** `threshold = ...` (ví dụ: 0.90)
-- **Cặp thực thể bị Guard chặn:** `[Thực thể A]` vs `[Thực thể B]` (Ví dụ: `Sam Altman` vs `Steve Altman` hoặc `Apple` vs `Apple Music`)
-- **Lý do chặn:** [Lý do ngữ nghĩa tại sao không được gộp 2 thực thể này]
+Failure mode cần tránh là **false coreference → false edge**. Ví dụ, nếu “the company” bị gán cho công ty được nhắc ở câu trước thay vì chủ thể của giao dịch hiện tại, extractor có thể tạo sai cạnh `ACQUIRED` hoặc `INVESTED_IN`. Chính sách hiện tại ưu tiên bỏ sót một resolution hơn là đưa cạnh sai vào graph.
 
----
+### 2.2 Entity Resolution: threshold và lexical guard
 
-### 3. Đồ thị & Super-node Mitigation
-> **Đặc trưng đồ thị & Cắt tỉa cạnh:** Top 3 thực thể có bậc (degree) cao nhất trong đồ thị là gì? Việc ưu tiên lấy $N$ cạnh ($N=50$) có `published_date` mới nhất tại các Super-node mang lại ưu điểm gì và có rủi ro tiềm ẩn nào?
+Ngưỡng vector matching là **cosine similarity = 0.90**. Candidate được tìm bằng HNSW ANN (chỉ dùng FlatIP cho tập rất nhỏ), sau đó qua guard theo loại entity:
 
-*Trả lời:*
-- **Top 3 Super-nodes:**
+- `Company`: chấp nhận alias/ticker trong allowlist hoặc khác biệt hậu tố Inc./Corp./Ltd.; lexical ratio phải từ 0.92.
+- `Person`: chỉ merge exact-normalized; chặn các trường hợp cùng họ nhưng khác tên như `Sam Altman` và `Steve Altman`.
+- `Technology`: non-exact merge bị chặn; bảo vệ `Apple` và `Apple Watch` không bị hợp nhất.
 
-| Hạng | Tên thực thể | Loại thực thể (Type) | Bậc kết nối (Degree) |
-|------|--------------|---------------------|----------------------|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
+Audit được thiết kế để ghi `MERGE_MANUAL`, `MERGE_VECTOR`, `REJECT_GUARD`, `guard_reason` và `index_kind`. File audit cần được giữ lại từ lần chạy extraction để trích một cặp high-similarity bị chặn trong bài nộp.
 
-- **Ưu điểm & Rủi ro của Temporal Mitigation:**
-  - *Ưu điểm:* [Giảm thiểu bùng nổ context, giữ lại thông tin cập nhật nhất...]
-  - *Rủi ro:* [Nếu câu hỏi liên quan đến sự kiện lịch sử trong quá khứ xa có thể bị cắt mất...]
+### 2.3 Super-node analysis
 
----
+Top degree nodes thực tế:
 
-### 4. So sánh Thực nghiệm (Flat RAG vs GraphRAG)
+| Hạng | Entity | Type | Degree |
+|---:|---|---|---:|
+| 1 | Apple | Company | 7 |
+| 2 | Railergy | Company | 5 |
+| 3 | Meeno | Company | 3 |
 
-#### Bảng tổng hợp Benchmark (LLM-as-a-Judge):
+Không có node nào vượt ngưỡng 100 trong graph hiện tại, vì vậy cap 50 cạnh chưa được kích hoạt trên dữ liệu này. Khi có super-node, policy lấy tối đa 50 cạnh mới nhất và toàn context không vượt 250 cạnh. Lợi ích là giảm token/context explosion; rủi ro là câu hỏi về sự kiện lịch sử có thể bị bỏ mất cạnh cũ.
 
-| Tiêu chí đánh giá | Flat RAG | GraphRAG | Độ chênh lệch ($\Delta$) | Nhận xét phân tích |
-|-------------------|----------|----------|--------------------------|-------------------|
-| **Comprehensiveness (1–5)** | | | | |
-| **Faithfulness (1–5)** | | | | |
-| **Multi-hop Reasoning (1–5)** | | | | |
-| **Latency trung bình (s)** | | | | |
-| **Token usage trung bình** | | | | |
+### 2.4 Benchmark Flat RAG vs GraphRAG
 
-#### Phân tích 2 Ca lỗi Điển hình:
-1. **Ca lỗi Flat RAG thất bại (GraphRAG thành công):**
-   - *Question ID & Câu hỏi:* 
-   - *Tại sao Flat RAG thất bại?* [Ví dụ: Vector search không kết nối được 2 chunks chứa thông tin rời rạc...]
-   - *GraphRAG đã giải quyết như thế nào?* [Ví dụ: Graph traversal qua cạnh A -> B -> C...]
-2. **Ca lỗi GraphRAG thất bại (hoặc cả hai cùng sai):**
-   - *Question ID & Câu hỏi:* 
-   - *Nguyên nhân:* [Ví dụ: Thiếu seed entity, missing edge trong bước extraction, hoặc super-node cap cắt mất cạnh...]
-   - *Đề xuất khắc phục:* [...]
+Kết quả trung bình từ 50 dòng checkpoint:
 
----
+| Metric | Flat RAG | GraphRAG | Nhận xét |
+|---|---:|---:|---|
+| Comprehensiveness | 1.66 | 1.64 | Cả hai thấp; GraphRAG chưa cải thiện overall. |
+| Faithfulness | 1.80 | 1.78 | Context thường không chứa evidence Golden. |
+| Multi-hop reasoning | 1.66 | 1.64 | Graph coverage chưa đủ cho chuỗi suy luận. |
+| Latency (giây) | 1.89 | 1.84 | Gần tương đương trên sample này. |
+| Token usage | 630.10 | 505.40 | Graph context ngắn hơn trong lần chạy này. |
 
-### 5. Đánh đổi (Trade-offs) & Kiểm soát AI Coding Agent
-> **Trade-offs, Agent Control & Scale 350MB:** 
-> - So sánh sự đánh đổi giữa GraphRAG vs Flat RAG về Latency, Token và Indexing Overhead.
-> - Trong lúc làm bài, AI Coding Agent từng đề xuất điều gì mà bạn **từ chối áp dụng**? Tại sao?
-> - Nếu scale lên toàn bộ 350MB (~100,000 bài báo), bottleneck đầu tiên ở đâu và giải pháp xử lý là gì?
+Theo nhóm, GraphRAG tốt hơn nhẹ ở `cross-doc` (comprehensiveness 1.773 so với 1.727; faithfulness 1.955 so với 1.864) và `factoid`, nhưng thấp hơn Flat RAG ở `multi-hop`.
 
-*Trả lời:*
-- **Đánh đổi Quality vs Cost vs Latency:** [...]
-- **Quyết định từ chối AI Coding Agent:** [Ví dụ: Từ chối thuật toán $O(N^2)$ pairwise cosine trên toàn bộ dataset vì gây tràn RAM/OOM...]
-- **Giải pháp scale 350MB:** [Ví dụ: Async batch extraction với worker queue, HNSW index với blocking cho Entity Resolution, Community Partitioning...]
+**Failure case chính — G5000-01:** cả Flat RAG lẫn GraphRAG trả lời rằng context không có Aeris–Ericsson, trong khi reference answer yêu cầu IoT Accelerator, Connected Vehicle Cloud, 100 triệu thiết bị, 9.000 doanh nghiệp và 190 quốc gia. Đây là bằng chứng pipeline đã benchmark với context thiếu evidence. Nguyên nhân gốc được suy luận là lần benchmark đã chạy trước khi Golden-aware selection được áp dụng đầy đủ, hoặc CSV input không khớp đúng phạm vi 5.000 dòng mà Golden Set tham chiếu.
 
----
+**Failure case GraphRAG — G5000-09:** Flat RAG đạt comprehensiveness 2, GraphRAG đạt 1. Graph extraction/seed matching không đưa được event “Now Assist for Virtual Agent” vào subgraph, nên vector context tương đối ít bị ảnh hưởng hơn.
 
-## 📌 PHẦN 2: SUY NGẪM & KẾ HOẠCH ĐỒ ÁN (Reflection & Action Plan)
+Khắc phục: chạy lại preprocessing với `source_row_id`, dùng `select_extraction_source(chunks_df, golden_scope_df)`, xác nhận các row ID evidence hiện diện trước extraction, và tăng/điều chỉnh relation allowlist cho các quan hệ Golden yêu cầu.
 
-### 1. Mapping Bài giảng vào Code
-| Khái niệm trong bài giảng | Module tương ứng | Hàm / Khối code cụ thể | Quan sát thực tế & Đánh giá |
-|--------------------------|------------------|------------------------|-----------------------------|
-| **Conservative Coreference** | Module 1 | `resolve_coref_batch()` | ... |
-| **Schema & Allowlist Guard** | Module 2 | `ALLOWED_NODE_TYPES`, `ALLOWED_RELATIONS` | ... |
-| **Bulk Cypher Ingestion** | Module 2 | `bulk_insert_nodes()`, `bulk_insert_edges()` | ... |
-| **Entity Resolution & Union-Find** | Module 3 | `build_resolution_map()`, `UF` | ... |
-| **Super-node Degree Cap** | Module 4 | `retrieve_graph_context()` | ... |
-| **LLM-as-a-Judge Evaluation** | Module 5 | `judge_answer()` | ... |
+### 2.5 Trade-offs, Agent Control và Scale
 
----
+Flat RAG có index đơn giản, nhanh triển khai nhưng thiếu liên kết đa tài liệu. GraphRAG tốn chi phí coreference, extraction, entity resolution và Neo4j ingestion; đổi lại có provenance và traversal có kiểm soát.
 
-### 2. Quá trình Debugging & Bài học
-- **Lỗi kỹ thuật phức tạp nhất gặp phải:** [...]
-- **Cách bạn đã xử lý thành công:** [...]
+Đề xuất bị từ chối: pairwise cosine toàn bộ entity mentions `O(N²)`, vì sẽ tăng RAM/thời gian nhanh khi scale. Thay bằng FAISS HNSW ANN + lexical guard + Union-Find.
 
----
+Khi scale 350 MB, bottleneck đầu tiên là LLM extraction và rate limit. Giải pháp: queue async theo batch, checkpoint từng batch, HNSW ANN, Neo4j `UNWIND` batch, partition/community summary và retry/backoff có resume.
 
-### 3. Kế hoạch Áp dụng vào Đồ án Thực tế (Action Plan)
-- **Tên đồ án / Dự án:** [Tên dự án]
-- **Đặc thù bài toán & Lý do chọn giải pháp:** [Tại sao bài toán của bạn cần GraphRAG hay chỉ cần Flat/Hybrid RAG?]
-- **Cấu trúc Node & Relation dự kiến:**
-  - Nodes: `...`
-  - Relations: `...`
-- **Chiến lược xử lý Super-node & Entity Resolution:** [...]
+## 3. Reflection và action plan
 
----
+| Khái niệm | Module / code | Quan sát |
+|---|---|---|
+| Conservative Coreference | `run_coref()` + guard 1.7A | Bảo vệ graph khỏi false edge. |
+| Schema allowlist | `ALLOWED_NODE_TYPES`, `ALLOWED_RELATIONS` | Chặn relation/node ngoài schema. |
+| Bulk Cypher | `bulk_insert_nodes()`, `bulk_insert_edges()` | Nạp theo `UNWIND`, không insert từng row. |
+| Entity Resolution | `build_resolution_map()` + HNSW guard | Có audit cho merge/reject. |
+| Super-node cap | `retrieve_graph_context()` | Cap degree >100, edge/global context cap. |
+| LLM-as-a-Judge | `run_evaluation()` | So sánh quality, latency, token. |
 
-## 🎯 TỰ ĐÁNH GIÁ
-| Tiêu chí | Điểm tự chấm (1–5) | Ghi chú |
-|----------|-------------------|---------|
-| Mức độ hiểu bài giảng GraphRAG | | |
-| Khả năng kiểm soát AI Coding Agent | | |
-| Chất lượng đồ thị tri thức xây dựng | | |
-| Khả năng phân tích và debug hệ thống | | |
+Lỗi khó nhất là benchmark Golden không tìm thấy evidence mặc dù reference answer có nguồn cụ thể. Bài học là phải kiểm tra alignment giữa dataset, source row ID, chunk selection và Golden scope trước khi đánh giá retrieval.
+
+Với đồ án thực tế, chỉ dùng GraphRAG khi câu hỏi thường cần nối quan hệ đa bước/đa tài liệu và provenance. Node có thể là `Document`, `Organization`, `Person`, `Technology`, `Policy`; relation có thể là `OWNS`, `ANNOUNCED`, `APPLIES_TO`, `SUPERSEDES`, `USES`. Entity Resolution cần allowlist và human-review queue cho candidate gần ngưỡng; super-node cần temporal cap và relation-aware ranking.
+
+## 4. Việc cần xác nhận trước khi nộp
+
+- [x] Neo4j connected; graph có node/edge.
+- [x] Provenance check: 0 invalid edges.
+- [x] Golden checkpoint: 50/50 câu.
+- [x] Xuất hai CSV benchmark.
+- [ ] Lưu `entity_resolution_audit.csv` và `coref_audit.jsonl` từ lần chạy cuối để kèm bằng chứng.
+- [ ] Rerun benchmark sau Golden-aware selection để cải thiện coverage và thay checkpoint hiện tại nếu dữ liệu đã align.
+- [ ] Kiểm tra `Restart & Run All` (bỏ cell streaming nếu dùng CSV local).
