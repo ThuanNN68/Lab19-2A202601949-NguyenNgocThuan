@@ -26,6 +26,7 @@ golden_dataset.csv
 !outputs/graphrag_vs_flatrag_summary.csv
 !outputs/entity_resolution_audit.csv
 !outputs/near_dedup_audit.csv
+!outputs/supernode_policy_check.csv
 *.jsonl
 !outputs/coref_audit.jsonl
 *.parquet

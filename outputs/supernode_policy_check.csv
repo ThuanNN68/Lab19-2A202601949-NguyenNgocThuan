@@ -1,0 +1,4 @@
+check,entity,observed_degree,threshold,expected_edge_limit,status,note
+live_graph,Apple,7,100,1000,PASS_NOT_TRIGGERED,Maximum live degree checked; cap does not trigger below threshold.
+synthetic_policy_branch,synthetic_degree_101,101,100,50,PASS,Policy unit check: degree > 100 caps to 50 newest edges.
+provenance,all_edges,0,0,0,PASS,All relationships require source_chunk_id and published_date.

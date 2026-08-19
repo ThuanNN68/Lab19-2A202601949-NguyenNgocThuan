@@ -1,1 +1,21 @@
-type,left,right,similarity,decision,guard_reason
+type,left,right,similarity,decision,guard_reason,candidate_source
+Technology,AI-powered avatars,AI-powered chatbot,0.7222,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Technology,GNSS/INS technology,stealth technology,0.6486,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Person,Manolo Saiz,Roman Saini,0.6364,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Applanix,Apple,0.6154,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Person,Isha,Sharko,0.6,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Technology,automotive radar technology,stealth technology,0.5778,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Synthesia,Systerel SAS,0.5714,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,NIO Inc.,ServiceNow Inc.,0.5714,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Technology,AI,Air 3,0.5714,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Ryan Specialty,Transact,0.5455,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,NIO Inc.,ONCE,0.5455,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Technology,Final Cut Pro,Logic Pro,0.5455,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,ChrysCapital,Ryan Specialty,0.5385,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Technology,brain-computer interface system,safe computer platform,0.5283,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Technology,GNSS/INS technology,automotive radar technology,0.5217,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Talkiatry,Twitter,0.5,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Synchron,Synopsys,0.5,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Sequoia,Synthesia,0.5,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Mastercard,Ouster,0.5,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit
+Company,Mastercard,Maxsip Telecom,0.5,REJECT_GUARD,post_ingest audit; lexical candidate did not satisfy exact alias/company-suffix merge rule,bounded_same_type_audit

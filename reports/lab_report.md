@@ -12,6 +12,10 @@ Golden evaluation đã chạy đủ **50/50** câu: 23 `multi-hop`, 22 `cross-do
 
 ## 2. Thuyết minh kỹ thuật và failure modes
 
+### 2.0 Near-Dedup (bonus)
+
+Near-Dedup dùng **SimHash 64-bit + LSH 4 bands**, không quét cosine pairwise toàn bộ dataset. Một cặp chỉ được merge khi `Hamming distance <= 6` và `5-gram Jaccard >= 0.82`; bucket vượt 100 phần tử bị bỏ qua và log lại. Trên 5.000 source records, LSH sinh **1.171 candidate pairs**, trong đó **903** đạt ngưỡng merge; toàn bộ quyết định merge/reject và lý do nằm trong `outputs/near_dedup_audit.csv`. Các cặp merge cần được review bằng URL/đoạn văn bản trước khi dùng ở môi trường production để bắt false positive do bài tin có template giống nhau.
+
 ### 2.1 Coreference Resolution
 
 Pipeline dùng conservative coreference guard: LLM chỉ đề xuất `mention → antecedent`; code chỉ thay thế khi antecedent có nguyên văn trong cùng chunk và mention xuất hiện duy nhất. Số tiền, ngày, phần trăm và ticker được kiểm tra bất biến. Các trường hợp không đạt được giữ nguyên và ghi vào `unresolved_mentions` với các mã như `ANTECEDENT_NOT_IN_SAME_CHUNK`, `AMBIGUOUS_MENTION_OCCURRENCES` và `INVARIANT_VIOLATION`.
@@ -26,7 +30,7 @@ Ngưỡng vector matching là **cosine similarity = 0.90**. Candidate được t
 - `Person`: chỉ merge exact-normalized; chặn các trường hợp cùng họ nhưng khác tên như `Sam Altman` và `Steve Altman`.
 - `Technology`: non-exact merge bị chặn; bảo vệ `Apple` và `Apple Watch` không bị hợp nhất.
 
-Audit được thiết kế để ghi `MERGE_MANUAL`, `MERGE_VECTOR`, `REJECT_GUARD`, `guard_reason` và `index_kind`. File audit cần được giữ lại từ lần chạy extraction để trích một cặp high-similarity bị chặn trong bài nộp.
+Audit ghi rõ `MERGE_MANUAL`, `MERGE_VECTOR`, `REJECT_GUARD`, `guard_reason` và nguồn candidate. Lần kiểm tra cuối có **20 candidate cùng type** từ graph thực tế; cả 20 đều là `REJECT_GUARD`, vì không cặp nào thỏa điều kiện alias chính xác/company-suffix để merge an toàn. File `outputs/entity_resolution_audit.csv` giữ lại toàn bộ các cặp này để review thủ công.
 
 ### 2.3 Super-node analysis
 
@@ -38,7 +42,7 @@ Top degree nodes thực tế:
 | 2 | Railergy | Company | 5 |
 | 3 | Meeno | Company | 3 |
 
-Không có node nào vượt ngưỡng 100 trong graph hiện tại, vì vậy cap 50 cạnh chưa được kích hoạt trên dữ liệu này. Khi có super-node, policy lấy tối đa 50 cạnh mới nhất và toàn context không vượt 250 cạnh. Lợi ích là giảm token/context explosion; rủi ro là câu hỏi về sự kiện lịch sử có thể bị bỏ mất cạnh cũ.
+Node có degree cao nhất trong graph hiện tại là **Apple (7)**, nên cap 50 cạnh chưa được kích hoạt trên dữ liệu thật. `outputs/supernode_policy_check.csv` lưu cả live check và unit check nhánh policy (`degree=101 → limit=50`, PASS). Khi có super-node, policy lấy tối đa 50 cạnh mới nhất và toàn context không vượt 250 cạnh. Lợi ích là giảm token/context explosion; rủi ro là câu hỏi về sự kiện lịch sử có thể bị bỏ mất cạnh cũ.
 
 ### 2.4 Benchmark Flat RAG vs GraphRAG
 
@@ -89,6 +93,6 @@ Với đồ án thực tế, chỉ dùng GraphRAG khi câu hỏi thường cần
 - [x] Provenance check: 0 invalid edges.
 - [x] Golden checkpoint: 50/50 câu.
 - [x] Xuất hai CSV benchmark.
-- [ ] Lưu `entity_resolution_audit.csv` và `coref_audit.jsonl` từ lần chạy cuối để kèm bằng chứng.
+- [x] Đã lưu `entity_resolution_audit.csv`, `coref_audit.jsonl`, `near_dedup_audit.csv` và `supernode_policy_check.csv` làm bằng chứng kiểm tra.
 - [ ] Rerun benchmark sau Golden-aware selection để cải thiện coverage và thay checkpoint hiện tại nếu dữ liệu đã align.
 - [ ] Kiểm tra `Restart & Run All` (bỏ cell streaming nếu dùng CSV local).
